@@ -1,0 +1,163 @@
+#!/bin/bash
+
+usage() {
+    echo "usage: $0 [-d]"
+    echo "                  -u SERVER_PUBLIC_URL"
+}
+
+STRONGSWAN_C="US"
+STRONGSWAN_O="StrongSwan"
+STRONGSWAN_SERVER_URL=''
+STRONGSWAN_SERVER_CN=''
+STRONGSWAN_ENV=${STRONGSWAN_CONFIG}/strongswan_env.sh
+
+# Import existing configuration if present
+[ -r "$STRONGSWAN_ENV" ] && source "$STRONGSWAN_ENV"
+
+# Parse arguments
+while getopts ":u:c" opt; do
+    case $opt in
+        u)
+            STRONGSWAN_SERVER_URL="$OPTARG"
+            ;;
+        \?)
+            set +x
+            echo "Invalid option: -$OPTARG" >&2
+            usage
+            exit 1
+            ;;
+        :)
+            set +x
+            echo "Option -$OPTARG requires an argument." >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+
+# Server name is in the form "vpn.example.com" or ip address
+if [[ "${STRONGSWAN_SERVER_URL:-}" =~ ([0-9a-zA-Z\.\-]+)?$ ]]; then
+    STRONGSWAN_SERVER_CN=${BASH_REMATCH[0]};
+else
+    set +x
+    echo "Common name not specified, see '-u'"
+    usage
+    exit 1
+fi
+
+# Preserve config
+if [ -f "$STRONGSWAN_ENV" ]; then
+    bak_env=$STRONGSWAN_ENV.$(date +%s).bak
+    echo "Backing up $STRONGSWAN_ENV -> $bak_env"
+    mv "$STRONGSWAN_ENV" "$bak_env"
+fi
+
+# Save the current STRONGSWAN_ vars to the strongswan_env.sh file
+while read -r var; do
+  echo "declare -x $var"  >> "$STRONGSWAN_ENV"
+done < <(set | grep '^STRONGSWAN_')
+
+ipsec_conf=${STRONGSWAN_CONFIG:-}/ipsec.conf
+if [ -f "$ipsec_conf" ]; then
+    bak=$ipsec_conf.$(date +%s).bak
+    echo "Backing up $ipsec_conf -> $bak"
+    cp "$ipsec_conf" "$bak"
+fi
+
+cat > "$ipsec_conf" <<EOF
+config setup
+  uniqueids=no
+
+conn %default
+  keyexchange=ikev2
+  ikelifetime=60m
+  keylife=20m
+  rekeymargin=3m
+  keyingtries=1
+  rekey=no
+  ike=chacha20poly1305-prfsha256-newhope128,chacha20poly1305-prfsha256-ecp256,aes128gcm16-prfsha256-ecp256,aes256-sha256-modp2048,aes256-sha256-modp1024!
+  esp=chacha20poly1305-newhope128,chacha20poly1305-ecp256,aes128gcm16-ecp256,aes256-sha256-modp2048,aes256-sha256,aes256-sha1!
+  dpdaction=clear
+  dpddelay=120s
+  auto=add
+
+conn roadwarrior
+  left=%any
+  leftid=___VPN_SERVER___
+  leftauth=pubkey
+  leftcert=serverCert.pem
+  leftsendcert=always
+  leftsubnet=0.0.0.0/0,::/0
+  leftupdown=/etc/ipsec.d/firewall.updown
+  #leftfirewall=yes
+  right=%any
+  rightauth=pubkey
+  #rightsourceip=%dhcp,fdef:a51d:f888::/112
+  rightsourceip=192.168.12.0/24,fdef:a51d:f888::/112
+  rightdns=8.8.8.8,2001:4860:4860::8888
+
+conn roadwarrior-eap
+  also=roadwarrior
+  rightauth=eap-dynamic
+  eap_identity=%any
+
+conn roadwarrior-pubkey-eap
+  also=roadwarrior
+  rightauth2=eap-dynamic
+  eap_identity=%any
+
+conn client
+  left=%defaultroute
+  leftauth=eap
+  leftsourceip=%config4,%config6
+  rightauth=pubkey
+  rightsubnet=0.0.0.0/0,::/0
+  eap_identity=%identity
+EOF
+
+echo replacing ___VPN_SERVER___/$STRONGSWAN_SERVER_CN
+
+# Put your domain name into the nginx reverse proxy config.
+sed -i "s/___VPN_SERVER___/$STRONGSWAN_SERVER_CN/g" $ipsec_conf
+
+if diff -q "${bak:-}" "$ipsec_conf" 2>/dev/null; then
+    echo "Removing duplicate back-up: $bak"
+    rm -fv "$bak"
+fi
+
+strongswan_conf=${STRONGSWAN_CONFIG:-}/strongswan.conf
+if [ -f "$strongswan_conf" ]; then
+    bak=$strongswan_conf.$(date +%s).bak
+    echo "Backing up $strongswan_conf -> $bak"
+    cp "$strongswan_conf" "$bak"
+fi
+
+cat > "$strongswan_conf" <<EOF
+charon {
+  send_vendor_id = yes
+  dns1 = 8.8.8.8
+  dns2 = 8.8.4.4
+  plugins {
+    eap-dynamic {
+      preferred = mschapv2, tls, md5
+    }
+    dhcp {
+      identity_lease = yes
+    }
+  }
+  filelog {
+    stderr {
+      #default = 3
+      flush_line = yes
+    }
+  }
+}
+EOF
+
+if diff -q "${bak:-}" "$strongswan_conf" 2>/dev/null; then
+    echo "Removing duplicate back-up: $bak"
+    rm -fv "$bak"
+fi
+echo "Successfully generated config"
+

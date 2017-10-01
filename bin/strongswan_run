@@ -1,0 +1,79 @@
+#!/bin/bash
+
+#
+# Run the Strongswan server normally
+#
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+cd $STRONGSWAN_CONFIG
+
+USER_ARGS=("${@}")
+ARGS=()
+
+ip -4 route show default 2>/dev/null
+if [ $? = 0 ]; then
+    echo "Enabling IPv4 Forwarding"
+    # If this fails, ensure the docker container is run with --privileged
+    # Could be side stepped with `ip netns` madness to drop privileged flag
+    sysctl -w net.ipv4.ip_forward=1 || echo "Failed to enable IPv4 Forwarding default"
+fi
+
+ip -6 route show default 2>/dev/null
+if [ $? = 0 ]; then
+    echo "Enabling IPv6 Forwarding"
+    # If this fails, ensure the docker container is run with --privileged
+    # Could be side stepped with `ip netns` madness to drop privileged flag
+
+    sysctl -w net.ipv6.conf.all.disable_ipv6=0 || echo "Failed to enable IPv6 support"
+    sysctl -w net.ipv6.conf.default.forwarding=1 || echo "Failed to enable IPv6 Forwarding default"
+    sysctl -w net.ipv6.conf.all.forwarding=1 || echo "Failed to enable IPv6 Forwarding"
+fi
+
+ipsec_secret=${STRONGSWAN_CONFIG:-}/ipsec.secrets
+if [ -f "$ipsec_secret" ]; then
+    bak=$ipsec_secret.$(date +%s).bak
+    echo "Backing up $ipsec_secret -> $bak"
+    cp "$ipsec_secret" "$bak"
+fi
+
+cat > "$ipsec_secret" <<EOF
+# get secrets from other files
+include ipsec.*.secrets
+EOF
+
+source "$STRONGSWAN_CONFIG/strongswan_env.sh"
+
+ipsec_conf=${STRONGSWAN_CONFIG:-}/ipsec.conf
+strongswan_conf=${STRONGSWAN_CONFIG:-}/strongswan.conf
+privatekey=${STRONGSWAN_CONFIG:-}/ipsec.d/private
+rootcert=${STRONGSWAN_CONFIG:-}/ipsec.d/cacerts
+servercert=${STRONGSWAN_CONFIG:-}/ipsec.d/certs
+
+for conffile in ${STRONGSWAN_CONFIG:-}/*.conf; do ln -nsf $conffile /etc/; done
+
+for secretsfile in ${STRONGSWAN_CONFIG:-}/*.secrets; do ln -nsf $secretsfile /etc/; done
+
+if [ -d "/etc/ipsec.d/private" ]; then
+    rm -rf /etc/ipsec.d/private
+    ln -nsf $privatekey /etc/ipsec.d/private
+fi
+
+if [ -d "/etc/ipsec.d/cacerts" ]; then
+    rm -rf /etc/ipsec.d/cacerts
+    ln -nsf $rootcert /etc/ipsec.d/cacerts
+fi
+
+if [ -d "/etc/ipsec.d/certs" ]; then
+    rm -rf /etc/ipsec.d/certs
+    ln -nsf $servercert /etc/ipsec.d/certs
+fi
+
+echo "Running 'ipsec start --nofork'"
+
+exec ipsec start --nofork
+

@@ -1,0 +1,76 @@
+#!/bin/bash
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+usage() {
+    echo "usage: $0 [-d]"
+    echo "                  -u SERVER_PUBLIC_URL"
+}
+
+STRONGSWAN_ENV=${STRONGSWAN_CONFIG}/strongswan_env.sh
+cn=''
+
+# Import existing configuration if present
+[ -r "$STRONGSWAN_ENV" ] && source "$STRONGSWAN_ENV"
+
+# Parse arguments
+while getopts ":u:c" opt; do
+    case $opt in
+        u)
+            cn="$OPTARG"
+            ;;
+        \?)
+            set +x
+            echo "Invalid option: -$OPTARG" >&2
+            usage
+            exit 1
+            ;;
+        :)
+            set +x
+            echo "Option -$OPTARG requires an argument." >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# Create directories
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/aacerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/aacerts
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/acerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/acerts
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/cacerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/cacerts
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/certs" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/certs
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/crls" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/crls
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/ocspcerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/ocspcerts
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/private" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/private
+
+echo "generating client key ${cn}"
+ipsec pki --gen --type rsa --size 4096 --outform pem > $STRONGSWAN_CONFIG/ipsec.d/private/${cn}.pem
+
+echo "generating client certificate"
+ipsec pki --issue --in $STRONGSWAN_CONFIG/ipsec.d/private/${cn}.pem \
+ --type priv \
+ --cacert $STRONGSWAN_CONFIG/ipsec.d/cacerts/caCert.pem \
+ --cakey $STRONGSWAN_CONFIG/ipsec.d/private/caKey.pem \
+ --dn "C=$STRONGSWAN_C, O=$STRONGSWAN_O, CN=$cn" \
+ --san="$cn" \
+ --outform pem > $STRONGSWAN_CONFIG/ipsec.d/certs/${cn}.pem
+
+echo "convert to openssl certificate" 
+echo -en "\n\n" | openssl pkcs12 -export -inkey $STRONGSWAN_CONFIG/ipsec.d/private/${cn}.pem \
+ -in $STRONGSWAN_CONFIG/ipsec.d/certs/${cn}.pem \
+ -name "$cn"   \
+ -certfile $STRONGSWAN_CONFIG/ipsec.d/cacerts/caCert.pem \
+ -caname "$CA_CN" -out $STRONGSWAN_CONFIG/${cn}.p12
+
+ipsec_secret=${STRONGSWAN_CONFIG:-}/ipsec.${cn}.secrets
+
+cat > "$ipsec_secret" <<EOF
+: RSA ${cn}.pem
+EOF
+
+cat $STRONGSWAN_CONFIG/${cn}.p12
+

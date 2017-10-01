@@ -5,6 +5,7 @@
 FROM alpine:edge
 
 ENV STRONGSWAN_RELEASE https://download.strongswan.org/strongswan.tar.bz2
+ENV STRONGSWAN_CONFIG /config
 
 RUN apk --update add build-base \
             ca-certificates \
@@ -12,6 +13,7 @@ RUN apk --update add build-base \
             ip6tables \
             iproute2 \
             iptables-dev \
+            bash \
             openssl \
             openssl-dev && \
     mkdir -p /tmp/strongswan && \
@@ -60,5 +62,10 @@ RUN apk --update add build-base \
 EXPOSE 500/udp \
        4500/udp
 
-ENTRYPOINT ["/usr/sbin/ipsec"]
-CMD ["starter", "--nofork"]
+VOLUME ["/config"]
+
+CMD ["strongswan_run"]
+
+ADD ./bin /usr/local/bin
+ADD ./config /etc
+RUN chmod a+x /usr/local/bin/*

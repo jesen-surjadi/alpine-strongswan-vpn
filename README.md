@@ -14,26 +14,41 @@ that can handle modern IKEv2 roadwarrior clients (with IPv6
 support in mind).
 
 ## Server Setup
+## Quick Start
 
-### Gather necessary files
+* Pick a name for the `$STRONGSWAN_DATA` data volume container. It's recommended to
+  use the `strongswan_data` prefix to operate seamlessly with the reference systemd
+  service.  Users are encourage to replace `example` with a descriptive name of
+  their choosing.
 
-Download the following configuration files from
-https://github.com/stanback/alpine-strongswan-vpn.git:
+        STRONGSWAN_DATA="strongswan_data"
 
-* generate_certs.sh
-* config/
-    * config/ipsec.conf
-    * config/ipsec.secrets
-    * config/strongswan.conf
-    * config/ipsec.d/firewall.updown
+* Initialize the `$STRONGSWAN_DATA` container that will hold the configuration files
+  and certificates.  The container will prompt for a passphrase to protect the
+  private key used by the newly generated certificate authority.
+
+        docker volume create --name $STRONGSWAN_DATA
+		
+* Update ipsec.conf with your VPN hostname or ip address
+        docker run -v $STRONGSWAN_DATA:/config --rm alpine-strongswan-vpn strongswan_genconfig -u VPN.SERVERNAME.COM
+		
+* Generate VPN root CA key, CA Certificate, server private key and self-signed server certificate
+        docker run -v $STRONGSWAN_DATA:/config --rm alpine-strongswan-vpn strongswan_initpki
+
+* Generate and retrieve client certificate 
+        docker run -v $STRONGSWAN_DATA:/config --rm alpine-strongswan-vpn strongswan_genclientcert CLIENTNAME > $CLIENTNAME.p12
+		
+* Start Strongswan server process
+        docker run -v $STRONGSWAN_DATA:/config -d -p 500:500/udp -p 4500:4500/udp --cap-add=NET_ADMIN alpine-strongswan-vpn
+
+
+## Next Steps
+
 
 ### Edit configuration, setup certificates
 
-Edit the configuration files to your liking.
-You should change the secrets in `ipsec.secrets`,
-update `rightsourceip=` and `leftid=` in `ipsec.conf`
-to match your network setup, and review the rules
-in `ipsec.d/firewall.updown`.
+review the rules in `ipsec.d/firewall.updown`. 
+
 
 If running behind a router, you'll need to forward
 ports 500/udp and 4500udp. If you have a local firewall,
@@ -46,32 +61,12 @@ forwarding enabled, advertisements are disabled unless
 you set `accept_ra=2` for your interface with sysctl or
 in `/etc/network/interfaces`.
 
-Generate your certificate signing authority, server
-certificate, and client certificate. Edit and run
-the `generate_certs.sh` script to generate the
-necessary certificates and directories.
-
 ### Start Docker container
 
 Running this particular Docker container typically requires
 running with elevated privileges including `--cap-add=NET_ADMIN`
-and `--net=host`. It will have permission to modify your Docker
+and `--net=host` or `-p 500:500/udp -p 4500:4500/udp`. It will have permission to modify your Docker
 host's networking and iptables configuration.
-
-Ensure the config folder is in your current directory ($PWD) and run:
-
-    docker run -d \
-      --cap-add=NET_ADMIN \
-      --net=host \
-      -v $PWD/config/strongswan.conf:/etc/strongswan.conf \
-      -v $PWD/config/ipsec.conf:/etc/ipsec.conf \
-      -v $PWD/config/ipsec.secrets:/etc/ipsec.secrets \
-      -v $PWD/config/ipsec.d:/etc/ipsec.d \
-      --name=strongswan \
-      stanback/alpine-strongswan-vpn
-
-You can append arguments like `starter --nofork --debug` to
-get debug output. Run `--help` for list of arguments.
 
 You may need to enable packet forwarding and ndp proxying on your
 docker host via sysctl or /etc/sysctl.conf:

@@ -1,0 +1,40 @@
+#!/bin/bash
+
+if [ "$DEBUG" == "1" ]; then
+  set -x
+fi
+
+set -e
+
+source "$STRONGSWAN_CONFIG/strongswan_env.sh"
+
+# Create directories
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/aacerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/aacerts
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/acerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/acerts
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/cacerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/cacerts
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/certs" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/certs
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/crls" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/crls
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/ocspcerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/ocspcerts
+[ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/private" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/private
+
+echo "generating root CA key"
+ipsec pki --gen --type rsa --size 4096 --outform pem > $STRONGSWAN_CONFIG/ipsec.d/private/caKey.pem
+
+chmod 600 $STRONGSWAN_CONFIG/ipsec.d/private/caKey.pem
+
+echo "generating root CA Certificate"
+ipsec pki --self --in $STRONGSWAN_CONFIG/ipsec.d/private/caKey.pem \
+ --dn "C=$STRONGSWAN_C, O=$STRONGSWAN_O, CN=$STRONGSWAN_SERVER_CN" \
+ --ca --lifetime 3650 --outform pem > $STRONGSWAN_CONFIG/ipsec.d/cacerts/caCert.pem
+
+echo "generating server key"
+ipsec pki --gen --type rsa --size 4096 --outform pem > $STRONGSWAN_CONFIG/ipsec.d/private/serverKey.pem
+
+echo "generating server certificate"
+ipsec pki --issue --in $STRONGSWAN_CONFIG/ipsec.d/private/serverKey.pem \
+ --type priv \
+ --cacert $STRONGSWAN_CONFIG/ipsec.d/cacerts/caCert.pem \
+ --cakey $STRONGSWAN_CONFIG/ipsec.d/private/caKey.pem \
+ --dn "C=$STRONGSWAN_C, O=$STRONGSWAN_O, CN=$STRONGSWAN_SERVER_CN" \
+ --san="$STRONGSWAN_SERVER_CN" \
+ --flag serverAuth --flag ikeIntermediate --outform pem > $STRONGSWAN_CONFIG/ipsec.d/certs/serverCert.pem
