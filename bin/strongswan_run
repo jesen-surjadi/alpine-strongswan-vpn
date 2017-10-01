@@ -42,8 +42,7 @@ if [ -f "$ipsec_secret" ]; then
 fi
 
 cat > "$ipsec_secret" <<EOF
-# get secrets from other files
-include ipsec.*.secrets
+: RSA serverKey.pem
 EOF
 
 source "$STRONGSWAN_CONFIG/strongswan_env.sh"

@@ -12,31 +12,10 @@ usage() {
 }
 
 STRONGSWAN_ENV=${STRONGSWAN_CONFIG}/strongswan_env.sh
-cn=''
+cn="$1"
 
 # Import existing configuration if present
 [ -r "$STRONGSWAN_ENV" ] && source "$STRONGSWAN_ENV"
-
-# Parse arguments
-while getopts ":u:c" opt; do
-    case $opt in
-        u)
-            cn="$OPTARG"
-            ;;
-        \?)
-            set +x
-            echo "Invalid option: -$OPTARG" >&2
-            usage
-            exit 1
-            ;;
-        :)
-            set +x
-            echo "Option -$OPTARG requires an argument." >&2
-            usage
-            exit 1
-            ;;
-    esac
-done
 
 # Create directories
 [ ! -d "${STRONGSWAN_CONFIG:-}/ipsec.d/aacerts" ] && mkdir -p ${STRONGSWAN_CONFIG:-}/ipsec.d/aacerts
@@ -60,11 +39,12 @@ ipsec pki --issue --in $STRONGSWAN_CONFIG/ipsec.d/private/${cn}.pem \
  --outform pem > $STRONGSWAN_CONFIG/ipsec.d/certs/${cn}.pem
 
 echo "convert to openssl certificate" 
-echo -en "\n\n" | openssl pkcs12 -export -inkey $STRONGSWAN_CONFIG/ipsec.d/private/${cn}.pem \
+openssl pkcs12 -export -inkey $STRONGSWAN_CONFIG/ipsec.d/private/${cn}.pem \
  -in $STRONGSWAN_CONFIG/ipsec.d/certs/${cn}.pem \
  -name "$cn"   \
  -certfile $STRONGSWAN_CONFIG/ipsec.d/cacerts/caCert.pem \
- -caname "$CA_CN" -out $STRONGSWAN_CONFIG/${cn}.p12
+ -caname "$CA_CN" -out $STRONGSWAN_CONFIG/${cn}.p12 \
+ -password pass:password
 
 ipsec_secret=${STRONGSWAN_CONFIG:-}/ipsec.${cn}.secrets
 
