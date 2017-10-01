@@ -2,13 +2,13 @@
 
 C=US
 O=StrongSwan
-CA_CN=strongswan.org
-SERVER_CN=moon.strongswan.org
-SERVER_SAN=moon.strongswan.org
-CLIENT_CN="carol@strongswan.org"
+CA_CN=secureduck.duckdns.org
+SERVER_CN=secureduck.duckdns.org
+SERVER_SAN=secureduck.duckdns.org
+CLIENT_CN="jesen.surjadi@gmail.com"
 
 CONFIG_DIR=$PWD/config/ipsec.d
-IPSEC="docker run -it --rm=true -v $CONFIG_DIR:/etc/ipsec.d strongswan"
+IPSEC="docker run -it --rm=true -v $CONFIG_DIR:/etc/ipsec.d jesen/alpine-strongswan-vpn"
 
 mkdir -p $CONFIG_DIR/aacerts \
          $CONFIG_DIR/acerts \
@@ -27,4 +27,3 @@ eval $IPSEC pki --issue --in /etc/ipsec.d/private/serverKey.pem --type priv --ca
 eval $IPSEC pki --gen --outform pem > $CONFIG_DIR/private/clientKey.pem
 eval $IPSEC pki --issue --in /etc/ipsec.d/private/clientKey.pem --type priv --cacert /etc/ipsec.d/cacerts/caCert.pem --cakey /etc/ipsec.d/private/caKey.pem --dn \"C=$C, O=$O, CN=$CLIENT_CN\" --san=\"$CLIENT_CN\" --outform pem > $CONFIG_DIR/certs/clientCert.pem
 openssl pkcs12 -export -inkey $CONFIG_DIR/private/clientKey.pem -in $CONFIG_DIR/certs/clientCert.pem -name \"$CLIENT_CN\" -certfile $CONFIG_DIR/cacerts/caCert.pem -caname \"$CA_CN\" -out $CONFIG_DIR/clientCert.p12
-
