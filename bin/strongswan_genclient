@@ -46,11 +46,14 @@ openssl pkcs12 -export -inkey $STRONGSWAN_CONFIG/ipsec.d/private/${cn}.pem \
  -caname "$CA_CN" -out $STRONGSWAN_CONFIG/${cn}.p12 \
  -password pass:password
 
+basic_serets=${STRONGSWAN_CONFIG:-}/ipsec.secrets
 ipsec_secret=${STRONGSWAN_CONFIG:-}/ipsec.${cn}.secrets
 
 cat > "$ipsec_secret" <<EOF
 : RSA ${cn}.pem
 EOF
+
+cat "$ipsec_secret" >> $basic_serets
 
 cat $STRONGSWAN_CONFIG/${cn}.p12
 
